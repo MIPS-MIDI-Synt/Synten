@@ -4,7 +4,7 @@ void delay(int cyc) {
 	int i;
 	for(i = cyc; i > 0; i--);
 }
-
+// MIDI Baudrate = 31250, to sync MIDI and UART we set baudrate of UART to 31250
 int calculate_baudrate_divider(int sysclk, int baudrate, int highspeed) {
 	int pbclk, uxbrg, divmult;
 	unsigned int pbdiv;
@@ -40,14 +40,14 @@ int main(void) {
 	init();
 	
 	/* Configure UART1 for 115200 baud, no interrupts */
-	U1BRG = calculate_baudrate_divider(80000000, 115200, 0);
-	U1STA = 0;
+	U1BRG = calculate_baudrate_divider(80000000, 115200, 0); // Initializes U1BRG register for 31250 baud
+	U1STA = 0; // ???
 	/* 8-bit data, no parity, 1 stop bit */
-	U1MODE = 0x8000;
+	U1MODE = 0x8000; 
 	/* Enable transmit and recieve */
-	U1STASET = 0x1400;	
+	U1STASET = 0x1400;	// Only enable receive
 
-	for (;;) {
+	for (;;) { // Uses polling, might switch to interrupts, also ignore write buffer and U1TXREG
 		while(!(U1STA & 0x1)); //wait for read buffer to have a value
 		tmp = U1RXREG & 0xFF;
 		while(U1STA & (1 << 9)); //make sure the write buffer is not full 
