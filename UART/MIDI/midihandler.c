@@ -2,9 +2,8 @@
 #include <math.h>
 
 #define BUFFER_SIZE 1024
-#define SAMPLE_RATE 44100
+#define SAMPLE_RATE 22050
 #define SAMPLE_DURATION (1.0f / SAMPLE_RATE)
-#define STREAM_BUFFER_SIZE 1024
 #define NUM_OSCILLATORS 32
 
 void message_handler(int midimessage){

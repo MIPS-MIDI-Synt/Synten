@@ -1,0 +1,2 @@
+intr.S.o: intr.S
+intr.S :
