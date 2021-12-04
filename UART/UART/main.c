@@ -67,8 +67,6 @@ void init() {
 
 	// Interrupts:
 
-	IEC(0) = 0x0;
-	IEC(1) = 0x0;
 	IEC(0) |= 0x08000000; // Interrupt enable bit 27 in IEC0 
 	IPC(6) |= 0x1F; // Interupt priority max = 7 IPC6<4:2>, sup-priority max = 3 IPC6<1:0>
 	//IPC(6) |= 0x0D; // Interupt priority max = 7 IPC6<4:2>, sup-priority max = 3 IPC6<1:0>
@@ -93,13 +91,15 @@ void error_handler(void)
 
 void uart_isr( void ){
 	unsigned char tmp;
-	//delay(100000000);
+	delay(100000);
+	PORTE ^= (1 << 4);
 	if(IFS(0) & 0x08000000){
 		tmp = U1RXREG & 0xFF;
 		while(U1STA & (1 << 9)); //make sure the write buffer is not full 
-		U1TXREG = tmp+2;
+		U1TXREG = tmp;
+		PORTE = tmp; // Nytillagd
+		IFS(0) &= 0xF7FFFFFF; // Acknowledge interrupt
 	}
-	IFS(0) &= 0xF7FFFFFF;
 }
 int main(void) {
 	delay(1000);
@@ -109,8 +109,10 @@ int main(void) {
 
 
 	for (;;) { // Uses polling, might switch to interrupts, also ignore write buffer and U1TXREG
+		// unsigned char tmp;
 		// while(!(U1STA & 0x1)); //wait for read buffer to have a value
-		// tmp = U1RXREG & 0xFF;
+		// delay(1000000);
+		// tmp = U1RXREG & 0xFFFFFF; // Går detta för att hämta ut 24 bits?
 		// while(U1STA & (1 << 9)); //make sure the write buffer is not full 
 		// U1TXREG = tmp;
 		// PORTE = tmp;
