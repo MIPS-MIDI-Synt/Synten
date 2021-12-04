@@ -7,10 +7,19 @@
 #define NUM_OSCILLATORS 32
 
 void message_handler(int midimessage){
-	int midi_func = (midimessage & 0x00f00000) >> 24; 
-	int midi_chan = (midimessage & 0x000f0000) >> 16;
-	int midi_key  = (midimessage & 0x00007f00) >> 8;
-	int midi_vel  = (midimessage & 0x0000007f); 
+    float freq;
+    int midi_func = (midimessage & 0x00f00000) >> 24; 
+    // int midi_chan = (midimessage & 0x000f0000) >> 16;
+
+    if(midi_func = 8){ // note off
+        // call functon to stop note playing
+    }
+    if(midi_func = 9){ // note on
+    float midi_key  = (midimessage & 0x00007f00) >> 8;
+    int midi_vel  = (midimessage & 0x0000007f); 
+    freq = powf(2.0f, (midi_key-69.0f)/12.0f) * 440;
+    // call function with freq
+    }
 }
 
 void delay(int cyc) {
