@@ -12,9 +12,7 @@ void delay(int cyc) {
 	int i;
 	for(i = cyc; i > 0; i--);
 }
-// void play(int key, ){
 
-// }
 #if 0
 void message_handler(char status, char key, char vel){
     int freq;
@@ -26,8 +24,9 @@ void message_handler(char status, char key, char vel){
     if(status >> 8 = 9){ // note on
     float midi_key  = (midimessage & 0x00007f00) >> 8;
     int midi_vel  = (midimessage & 0x0000007f); 
-    freq = powf(2.0f, ((float)key-69.0f)/12.0f) * 440;
-	
+    // freq = powf(2.0f, ((float)key-69.0f)/12.0f) * 440;
+	// freq = 2<<((key-69)/12.0f)*440;
+	freq = midi_key; 
     // call function with freq
     }
 }
@@ -54,8 +53,8 @@ int calculate_baudrate_divider(int sysclk, int baudrate, int highspeed) {
 
 #if 1
                           /* PIC32 signal, CHIPKIT Pin #  */
-#define DAC_LDAC_PIN		3 /* RD3,          9              */
-#define DAC_CS_PIN		5 /* RD5,          34             */
+//#define DAC_LDAC_PIN		3 /* RD3,          9              */
+#define DAC_CS_PIN		3 /* RD3,          9              */
 #define DAC_SDI_PIN		6 /* RD6,          36             */
 #define DAC_SCK_PIN		7 /* RD7,          37             */
 
@@ -64,18 +63,16 @@ int calculate_baudrate_divider(int sysclk, int baudrate, int highspeed) {
 void MCP4921_init(void)
 {
 	/* Set all pins used by DAC to outputs */
-	/*
-	TRISDCLR |= (1 << DAC_LDAC_PIN) | 
-					(1 << DAC_CS_PIN) | 
+	TRISDCLR |= (1 << DAC_CS_PIN) | 
 					(1 << DAC_SDI_PIN) | 
 					(1 << DAC_SCK_PIN);
-	*/
-	TRISD = 0;
+	
+	//TRISD = 0;
 					
 	/* LDAC and CS is active low so set pins high.
 	   LDAC can also be tied low if transfer to the DAC
 		on rising edge of CS is desired. */
-	PORTD |= (1 << DAC_LDAC_PIN) | (1 << DAC_CS_PIN);
+	PORTD |= (1 << DAC_CS_PIN);
 
 	PORTD &= ~((1 << DAC_SDI_PIN) | (1 << DAC_SCK_PIN));
 
@@ -120,7 +117,7 @@ void MCP4921_write(uint16_t data)
 }
 #endif
 
-void uart_init(void)
+void uart1_init(void)
 {
 	/* Configure UART1 for 115200 baud, no interrupts */
 	U1BRG = calculate_baudrate_divider(80000000, 31250, 0); // Initializes U1BRG register for 31250 baud
@@ -145,6 +142,24 @@ void uart_init(void)
 	enable_interrupt();
 }
 
+void timer2_init() {
+
+	T2CONCLR = 0x8000; // Turn off timer
+	/* Prescaler of 16 gives a clock to tim2 of 2.5 MHz */
+	T2CON = 0x4<<4; // Change bit 6-4 (TCKPS) to config prescale 1:16, set bits to: 100
+	//T2CON |= (1<<3); // T32 bit set to 1: Combine T2 & T3 for 32 bit 
+	// PR2 = period; // Set timeout period
+  	T2CONSET = 0x8000; // Turn on timer 
+
+}
+
+unsigned int timer2_get_cnt(void)
+{
+	//unsigned int tim_cnt = ((TMR3 << 16) & 0xffff0000) | (TMR2 & 0x0000ffff);
+	//return tim_cnt;
+	return TMR2;
+}
+
 void init() {
 
 	/* On Uno32, we're assuming we're running with sysclk == 80 MHz */
@@ -154,7 +169,9 @@ void init() {
 	// ODCE = 0; // Push-Pull output
 	// TRISECLR = 0xFF; // Låt va så länge,sätt alla pins till output
 	TRISE = 0x0; 
-	TRISF = 0xFFFFFFFF;
+	//TRISF = 0xFFFFFFFF;
+	TRISF = 0x00000000;
+
 	// /* Configure UART1 for 115200 baud, no interrupts */
 	// U1BRG = calculate_baudrate_divider(80000000, 31250, 0); // Initializes U1BRG register for 31250 baud
 	// U1STA = 0; // 
@@ -178,6 +195,8 @@ void init() {
 	// enable_interrupt();
 	// return;
 	PORTE = 0;
+	timer2_init();
+	//uart1_init();
 	MCP4921_init();
 
 }
@@ -223,24 +242,41 @@ void uart_isr( void ){
 	}
 }
 int main(void) {
+	unsigned int i_acc = 0;
 	unsigned int i = 0;
 	unsigned int j = 0;
 	unsigned int k = 0;
 	unsigned int m = 0;
+	unsigned int tim_ticks = 0;
 	// delay(1000);
 
 
 	init();
-
-
+	#define LOOP_PERIOD_COUNT 50
 	for (;;) { // Uses polling, might switch to interrupts, also ignore write buffer and U1TXREG
 		// delay(1000);
-
+		tim_ticks = timer2_get_cnt();
 		//MCP4921_write((sine_table[i] + sine_table[j] + sine_table[k] + sine_table[m]) >> 3);
-		MCP4921_write(sine_table[i >> 22]);
+		MCP4921_write(sine_table[i]);
 
 		//i = i & 0x3ff;
-		i += 50000000;
+		//i += 50000000;
+		i_acc += 600000000;
+		i = i_acc >> 22;
+
+
+		/*
+			While operating in 32-bit mode, the SIDL bit (TxCON<13>) of consecutive odd number timers 
+			of the 32-bit timer pair has an affect on the timer operation. 
+			All other bits in this register have no affect.
+		*/
+		while ((timer2_get_cnt() - tim_ticks) < LOOP_PERIOD_COUNT);
+		/*
+		2^32 = 4294967296 / 50000000 = 85.89934592
+		(2^32 / i) * looptime = 0.00004 * 85.89934592 = 0.00343597383 s => 291.038305143 Hz
+		
+
+		*/
 		/*
 		i = i & 0x3ff;
 		++i;
