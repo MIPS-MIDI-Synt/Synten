@@ -1,36 +1,47 @@
 #include <pic32mx.h>
 #include <math.h>
 #include <stdint.h>
-#include "sine_wave.h"
+#include "waveforms.h"
+#include "midi_freq.h"
+//#include "bottonsAndSwitches.c"
 
 #define BUFFER_SIZE 1024
 #define SAMPLE_RATE 22050
 #define SAMPLE_DURATION (1.0f / SAMPLE_RATE)
 #define NUM_OSCILLATORS 32
+volatile int indexAdder = 600000000;
+// volatile int indexAdder = 3000000;
+
+// volatile int freq
 
 void delay(int cyc) {
 	int i;
 	for(i = cyc; i > 0; i--);
 }
 
-#if 0
+//#if 1
 void message_handler(char status, char key, char vel){
-    int freq;
+//    int freq;
+	PORTE = 0;
+	delay(1000);
     // int midi_chan = (midimessage & 0x000f0000) >> 16;
 
-    if(status >> 8 = 8){ // note off
-        // call functon to stop note playing
-    }
-    if(status >> 8 = 9){ // note on
-    float midi_key  = (midimessage & 0x00007f00) >> 8;
-    int midi_vel  = (midimessage & 0x0000007f); 
-    // freq = powf(2.0f, ((float)key-69.0f)/12.0f) * 440;
-	// freq = 2<<((key-69)/12.0f)*440;
-	freq = midi_key; 
+    // if(status >> 4 = 8){ // note off
+    //     // call functon to stop note playing
+    // }
+    // if(status >> 4 = 9){ // note on
+    //float midi_key  = (midimessage & 0x00007f00) >> 8;
+    //int midi_vel  = (midimessage & 0x0000007f); 
+    //freq = (int)pow(2, (key-69)/12) * 440;
+	// freq = 2<<((key-69)/12)*440;
+	// freq = freq_table[key];
+	PORTE = freq_table[key];
+	indexAdder = indexAdder>>key;
+	//freq = midi_key *; 
     // call function with freq
-    }
+    //}
 }
-#endif
+//#endif
 // MIDI Baudrate = 31250, to sync MIDI and UART we set baudrate of UART to 31250
 int calculate_baudrate_divider(int sysclk, int baudrate, int highspeed) {
 	int pbclk, uxbrg, divmult;
@@ -145,8 +156,10 @@ void uart1_init(void)
 void timer2_init() {
 
 	T2CONCLR = 0x8000; // Turn off timer
-	/* Prescaler of 16 gives a clock to tim2 of 2.5 MHz */
-	T2CON = 0x4<<4; // Change bit 6-4 (TCKPS) to config prescale 1:16, set bits to: 100
+	/* Prescaler of 16 gives a clock to tim2 of 40MHz/16 = 2.5 MHz */
+	// T2CON = 0x4<<4; // Change bit 6-4 (TCKPS) to config prescale 1:16, set bits to: 100 
+	T2CON = 0x5<<4; // Change bit 6-4 (TCKPS) to config prescale 1:32, set bits to: 101 
+	/* Prescaler of 32 gives a clock to tim2 of 80MHz/32 = 2.5 MHz */
 	//T2CON |= (1<<3); // T32 bit set to 1: Combine T2 & T3 for 32 bit 
 	// PR2 = period; // Set timeout period
   	T2CONSET = 0x8000; // Turn on timer 
@@ -161,7 +174,7 @@ unsigned int timer2_get_cnt(void)
 }
 
 void init() {
-
+	// TRISD = TRISD | 0xFE0; // Set BTNs as input
 	/* On Uno32, we're assuming we're running with sysclk == 80 MHz */
 	/* Periphial bust can run at a maximum of 40 MHz, setting PBDIV to 1 divides sysclk with 2 */
 	OSCCON &= ~0x180000; // Reset pbdiv to 0
@@ -169,23 +182,24 @@ void init() {
 	// ODCE = 0; // Push-Pull output
 	// TRISECLR = 0xFF; // Låt va så länge,sätt alla pins till output
 	TRISE = 0x0; 
-	//TRISF = 0xFFFFFFFF;
+	// TRISF = 0xFFFFFFFF;
 	TRISF = 0x00000000;
+	
 
-	// /* Configure UART1 for 115200 baud, no interrupts */
-	// U1BRG = calculate_baudrate_divider(80000000, 31250, 0); // Initializes U1BRG register for 31250 baud
-	// U1STA = 0; // 
-	// /* 8-bit data, no parity, 1 stop bit */
-	// U1MODE = 0x8000; 
-	// /* Enable transmit and recieve */
-	// U1STASET = 0x1400;	//
+	/* Configure UART1 for 115200 baud, no interrupts */
+	U1BRG = calculate_baudrate_divider(80000000, 31250, 0); // Initializes U1BRG register for 31250 baud
+	U1STA = 0; // 
+	/* 8-bit data, no parity, 1 stop bit */
+	U1MODE = 0x8000; 
+	/* Enable transmit and recieve */
+	U1STASET = 0x1400;	//
 
 
 	// Interrupts:
 
 	// IEC(0) |= 0x08000000; // Interrupt enable bit 27 in IEC0 
 	// IPC(6) |= 0x1F; // Interupt priority max = 7 IPC6<4:2>, sup-priority max = 3 IPC6<1:0>
-	//IPC(6) |= 0x0D; // Interupt priority max = 7 IPC6<4:2>, sup-priority max = 3 IPC6<1:0>
+	// IPC(6) |= 0x0D; // Interupt priority max = 7 IPC6<4:2>, sup-priority max = 3 IPC6<1:0>
 
 	// OBS: Below conflicting with row 44,46
 	// U1STA &= ~0xC0;
@@ -193,12 +207,12 @@ void init() {
 	// Interrupt flag @ IFS0<27>
 	// xxxx xxxx xxxx xxxx xxxx xxxx 00xx xxxx
 	// enable_interrupt();
-	// return;
+	
 	PORTE = 0;
 	timer2_init();
-	//uart1_init();
+	// uart1_init();
 	MCP4921_init();
-
+	//return;
 }
 
 void error_handler(void)
@@ -206,7 +220,7 @@ void error_handler(void)
 	while(1)
 	{
 		delay(1000000);
-		PORTE ^= (1 << 2);
+		//PORTE ^= (1 << 2);
 	}
 }
 
@@ -218,17 +232,17 @@ void uart_isr( void ){
 	unsigned int fifo_reg = 0;
 	int i = 0;
 	delay(100000);
-	PORTE ^= (1 << 4);
+	//PORTE ^= (1 << 4);
 	if(IFS(0) & 0x08000000){
-		//tmp = U1RXREG & 0xFFFFFF;
-		//fifo_reg = U1RXREG;
-		midi_buff[midi_msg_cnt++] = U1RXREG & 0xff;
-		//while(U1STA & (1 << 9));
-		//U1TXREG = U1RXREG;
+		// tmp = U1RXREG & 0xFFFFFF;
+		// fifo_reg = U1RXREG;
+		// // midi_buff[midi_msg_cnt++] = U1RXREG & 0xff;
+		// //while(U1STA & (1 << 9));
+		// //U1TXREG = U1RXREG;
 
-		// U1RXREG = 0;
-		//while(U1STA & (1 << 9)); //make sure the write buffer is not full 
-		//U1TXREG = tmp;
+		// // U1RXREG = 0;
+		// while(U1STA & (1 << 9)); //make sure the write buffer is not full 
+		// // U1TXREG = tmp;
 		// for(i = 0; i < 3; ++i)
 		// {
 		// 	while(U1STA & (1 << 9));
@@ -237,10 +251,35 @@ void uart_isr( void ){
 
 		// }
 		
-		PORTE = tmp; // Nytillagd
+		//PORTE = tmp; // Nytillagd
 		IFS(0) &= 0xF7FFFFFF; // Acknowledge interrupt
 	}
 }
+
+void buttonPlay( void ) {
+	// int btn4 = getbtns() & 4; // btn4 = 1xx
+	// int btn3 = getbtns() & 2; // btn3 = x1x
+	// int btn2 = getbtns() & 1; // btn2 = xx1
+	int sw1 = getsw() & 1;
+	int sw2 = getsw() & 2;
+	int sw3 = getsw() & 4;
+	int sw4 = getsw() & 8;
+
+	if (sw1) {
+		message_handler(0x9, 12, 0x1); // 
+	}
+	if (sw2) {
+		message_handler(0x9, 34, 0x1); // 
+	}
+	if (sw3) {
+		message_handler(0x9, 56, 0x1); // 
+	}
+	if (sw4) {
+		message_handler(0x9, 80, 0x1); // 
+	}
+	
+}
+
 int main(void) {
 	unsigned int i_acc = 0;
 	unsigned int i = 0;
@@ -250,20 +289,30 @@ int main(void) {
 	unsigned int tim_ticks = 0;
 	// delay(1000);
 
-
 	init();
 	#define LOOP_PERIOD_COUNT 50
 	for (;;) { // Uses polling, might switch to interrupts, also ignore write buffer and U1TXREG
 		// delay(1000);
+		buttonPlay();
+		// if (getsw() & 1) { // If switch 1, play with buttons instead
+		// 	buttonPlay(); // SPELA MED KNAPPAR
+		// }	
 		tim_ticks = timer2_get_cnt();
 		//MCP4921_write((sine_table[i] + sine_table[j] + sine_table[k] + sine_table[m]) >> 3);
+
+		// f = 440Hz, T = 0,0022727272727273s
 		MCP4921_write(sine_table[i]);
 
 		//i = i & 0x3ff;
 		//i += 50000000;
-		i_acc += 600000000;
+		i_acc += indexAdder;
 		i = i_acc >> 22;
+		// i++;
+		if (i < 1023) {
+			i = 0;
+		}
 
+		
 
 		/*
 			While operating in 32-bit mode, the SIDL bit (TxCON<13>) of consecutive odd number timers 
@@ -275,8 +324,8 @@ int main(void) {
 		2^32 = 4294967296 / 50000000 = 85.89934592
 		(2^32 / i) * looptime = 0.00004 * 85.89934592 = 0.00343597383 s => 291.038305143 Hz
 		
-
-		*/
+	
+		// */
 		/*
 		i = i & 0x3ff;
 		++i;
@@ -304,6 +353,7 @@ int main(void) {
 		// }
 		// delay(1000000);
 		// PORTE ^= (1 << 4);
+		// delay(1000);
 	}
 
 	return 0;
