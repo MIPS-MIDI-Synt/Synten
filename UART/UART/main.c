@@ -159,9 +159,14 @@ void timer2_init() {
 	/* Prescaler of 16 gives a clock to tim2 of 40MHz/16 = 2.5 MHz */
 	// T2CON = 0x4<<4; // Change bit 6-4 (TCKPS) to config prescale 1:16, set bits to: 100 
 	T2CON = 0x5<<4; // Change bit 6-4 (TCKPS) to config prescale 1:32, set bits to: 101 
+	int period_in_ms = 100; // By dividing 1s/10 we get 100ms                                              
+	int scale = 32;
+	int clock_freq = 80000000;
+	int period = (clock_freq / scale / period_in_ms); // = 31 250 which can be represented in the 16 bit register of Timer 2
+	PR2 = period;
 	/* Prescaler of 32 gives a clock to tim2 of 80MHz/32 = 2.5 MHz */
 	//T2CON |= (1<<3); // T32 bit set to 1: Combine T2 & T3 for 32 bit 
-	// PR2 = period; // Set timeout period
+	// PR2 = 80000000/32; // Set timeout period
   	T2CONSET = 0x8000; // Turn on timer 
 
 }
@@ -288,29 +293,42 @@ int main(void) {
 	unsigned int m = 0;
 	unsigned int tim_ticks = 0;
 	// delay(1000);
+	unsigned int timeoutcount = 0;
 
 	init();
 	#define LOOP_PERIOD_COUNT 50
 	for (;;) { // Uses polling, might switch to interrupts, also ignore write buffer and U1TXREG
 		// delay(1000);
-		buttonPlay();
+		// buttonPlay();
 		// if (getsw() & 1) { // If switch 1, play with buttons instead
 		// 	buttonPlay(); // SPELA MED KNAPPAR
 		// }	
-		tim_ticks = timer2_get_cnt();
+		//tim_ticks = timer2_get_cnt();
 		//MCP4921_write((sine_table[i] + sine_table[j] + sine_table[k] + sine_table[m]) >> 3);
 
 		// f = 440Hz, T = 0,0022727272727273s
+
+		if (IFS(0) & 0x100) { // Check if Timer 2 Time-out flag is set to 1, which is bit 8 of IFS0
+			timeoutcount++;
+			if (timeoutcount == 100) { // Check if counter has reached 100 = 100 time-out events
+				timeoutcount = 0;
+			}
+			IFS(0) &= 0xFFFFFEFF; // Time-out event, reset the flag to 0, bit 8 in IFS0.
+		}
+
+		i = (int) ((1024*32*440)/(25000*(timeoutcount)+timer2_get_cnt()))%1024;
+		// PORTE = i;
+		// delay(10000);
 		MCP4921_write(sine_table[i]);
 
 		//i = i & 0x3ff;
 		//i += 50000000;
-		i_acc += indexAdder;
-		i = i_acc >> 22;
+		// i_acc += indexAdder;
+		// i = i_acc >> 22;
 		// i++;
-		if (i < 1023) {
-			i = 0;
-		}
+		// if (i < 1023) {
+		// 	i = 0;
+		// }
 
 		
 
@@ -319,7 +337,7 @@ int main(void) {
 			of the 32-bit timer pair has an affect on the timer operation. 
 			All other bits in this register have no affect.
 		*/
-		while ((timer2_get_cnt() - tim_ticks) < LOOP_PERIOD_COUNT);
+		//while ((timer2_get_cnt() - tim_ticks) < LOOP_PERIOD_COUNT);
 		/*
 		2^32 = 4294967296 / 50000000 = 85.89934592
 		(2^32 / i) * looptime = 0.00004 * 85.89934592 = 0.00343597383 s => 291.038305143 Hz
@@ -358,4 +376,5 @@ int main(void) {
 
 	return 0;
 }
+
 
