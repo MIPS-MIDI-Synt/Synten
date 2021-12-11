@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include "waveforms.h"
 #include "midi_freq.h"
-//#include "bottonsAndSwitches.c"
+
 
 #define BUFFER_SIZE 1024
 #define SAMPLE_RATE 22050
@@ -35,7 +35,7 @@ void message_handler(char status, char key, char vel){
     //freq = (int)pow(2, (key-69)/12) * 440;
 	// freq = 2<<((key-69)/12)*440;
 	// freq = freq_table[key];
-	PORTE = freq_table[key];
+	PORTE = key;
 	indexAdder = indexAdder>>key;
 	//freq = midi_key *; 
     // call function with freq
@@ -85,7 +85,7 @@ void MCP4921_init(void)
 		on rising edge of CS is desired. */
 	PORTD |= (1 << DAC_CS_PIN);
 
-	PORTD &= ~((1 << DAC_SDI_PIN) | (1 << DAC_SCK_PIN));
+	PORTD &= ~((1 << DAC_SDI_PIN) | (1 << DAC_SCK_PIN)); // ??
 
 }
 
@@ -159,11 +159,11 @@ void timer2_init() {
 	/* Prescaler of 16 gives a clock to tim2 of 40MHz/16 = 2.5 MHz */
 	// T2CON = 0x4<<4; // Change bit 6-4 (TCKPS) to config prescale 1:16, set bits to: 100 
 	T2CON = 0x5<<4; // Change bit 6-4 (TCKPS) to config prescale 1:32, set bits to: 101 
-	int period_in_ms = 100; // By dividing 1s/10 we get 100ms                                              
-	int scale = 32;
-	int clock_freq = 80000000;
-	int period = (clock_freq / scale / period_in_ms); // = 31 250 which can be represented in the 16 bit register of Timer 2
-	PR2 = period;
+	// int period_in_ms = 100; // By dividing 1s/10 we get 100ms                                              
+	// int scale = 32;
+	// int clock_freq = 80000000;
+	// int period = (clock_freq / scale / period_in_ms); // = 31 250 which can be represented in the 16 bit register of Timer 2
+	// PR2 = period;
 	/* Prescaler of 32 gives a clock to tim2 of 80MHz/32 = 2.5 MHz */
 	//T2CON |= (1<<3); // T32 bit set to 1: Combine T2 & T3 for 32 bit 
 	// PR2 = 80000000/32; // Set timeout period
@@ -215,7 +215,7 @@ void init() {
 	
 	PORTE = 0;
 	timer2_init();
-	// uart1_init();
+	uart1_init();
 	MCP4921_init();
 	//return;
 }
@@ -236,15 +236,16 @@ void uart_isr( void ){
 	unsigned char tmp;
 	unsigned int fifo_reg = 0;
 	int i = 0;
-	delay(100000);
+	// delay(100000);
 	//PORTE ^= (1 << 4);
 	if(IFS(0) & 0x08000000){
 		// tmp = U1RXREG & 0xFFFFFF;
 		// fifo_reg = U1RXREG;
-		// // midi_buff[midi_msg_cnt++] = U1RXREG & 0xff;
+		// midi_buff[midi_msg_cnt++] = U1RXREG & 0xff;
 		// //while(U1STA & (1 << 9));
 		// //U1TXREG = U1RXREG;
-
+		// PORTE ^= (1 << 4);
+		PORTE = U1RXREG & 0xff;
 		// // U1RXREG = 0;
 		// while(U1STA & (1 << 9)); //make sure the write buffer is not full 
 		// // U1TXREG = tmp;
@@ -319,7 +320,7 @@ int main(void) {
 		i = (int) ((1024*32*440)/(25000*(timeoutcount)+timer2_get_cnt()))%1024;
 		// PORTE = i;
 		// delay(10000);
-		MCP4921_write(sine_table[i]);
+		// MCP4921_write(sine_table[i]);
 
 		//i = i & 0x3ff;
 		//i += 50000000;
@@ -337,7 +338,7 @@ int main(void) {
 			of the 32-bit timer pair has an affect on the timer operation. 
 			All other bits in this register have no affect.
 		*/
-		//while ((timer2_get_cnt() - tim_ticks) < LOOP_PERIOD_COUNT);
+		while ((timer2_get_cnt() - tim_ticks) < LOOP_PERIOD_COUNT);
 		/*
 		2^32 = 4294967296 / 50000000 = 85.89934592
 		(2^32 / i) * looptime = 0.00004 * 85.89934592 = 0.00343597383 s => 291.038305143 Hz
