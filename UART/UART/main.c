@@ -1,6 +1,7 @@
 #include <pic32mx.h>
 #include <math.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include "waveforms.h"
 #include "midi_freq.h"
 
@@ -8,38 +9,88 @@
 #define BUFFER_SIZE 1024
 #define SAMPLE_RATE 22050
 #define SAMPLE_DURATION (1.0f / SAMPLE_RATE)
-#define NUM_OSCILLATORS 32
-volatile int indexAdder = 600000000;
-// volatile int indexAdder = 3000000;
+#define NUM_OSCILLATORS 8
+// volatile int indexAdder = 600000000;
+// volatile int indexAdder = 60000000;
 
-// volatile int freq
+volatile int freq = 0;
+
+struct Oscillator {
+	int key;
+	int indexAdder;
+	unsigned int index;
+	bool running;
+};
+struct Oscillator osc[NUM_OSCILLATORS];
 
 void delay(int cyc) {
 	int i;
 	for(i = cyc; i > 0; i--);
 }
 
+unsigned char reverse(unsigned char b) {
+   b = (b & 0xF0) >> 4 | (b & 0x0F) << 4;
+   b = (b & 0xCC) >> 2 | (b & 0x33) << 2;
+   b = (b & 0xAA) >> 1 | (b & 0x55) << 1;
+   return b;
+}
+
+void handleNoteOn(int key) {
+	int i;
+	for (i = 0; i < NUM_OSCILLATORS; i++) {
+		if (osc[i].running == false) {
+			osc[i].running = true;
+			osc[i].key = key;
+			freq = freq_table[key];
+			PORTE = key;
+			osc[i].indexAdder = 175000*freq;
+			break;
+		}
+	}
+}
+
+void handleNoteOff(int key) {
+	int i;
+	for (i = 0; i < NUM_OSCILLATORS; i++) {
+		if (osc[i].key == key) {
+			osc[i].running = false;
+			break;
+		}
+	}
+}
+
+unsigned int polyphony(uint16_t* table) {
+	int i;
+	unsigned int amplitude = 0;
+	int numOscillators = 0;
+	for (i = 0; i < NUM_OSCILLATORS; i++) {
+		if (osc[i].running) {
+			numOscillators++;
+			osc[i].index += osc[i].indexAdder;
+			amplitude += table[osc[i].index>>22];
+		}
+	}
+	amplitude /= numOscillators;
+	return amplitude;
+}
+
 //#if 1
 void message_handler(char status, char key, char vel){
-//    int freq;
-	PORTE = 0;
-	delay(1000);
-    // int midi_chan = (midimessage & 0x000f0000) >> 16;
 
-    // if(status >> 4 = 8){ // note off
-    //     // call functon to stop note playing
-    // }
-    // if(status >> 4 = 9){ // note on
-    //float midi_key  = (midimessage & 0x00007f00) >> 8;
-    //int midi_vel  = (midimessage & 0x0000007f); 
-    //freq = (int)pow(2, (key-69)/12) * 440;
-	// freq = 2<<((key-69)/12)*440;
-	// freq = freq_table[key];
-	PORTE = key;
-	indexAdder = indexAdder>>key;
-	//freq = midi_key *; 
-    // call function with freq
-    //}
+	unsigned int statusBits = (status >> 4)&0xF;
+	U1TXREG = statusBits;
+    switch(statusBits) {
+		case 8:
+			handleNoteOff(key);
+			// freq = 0;
+			break;
+		case 9:
+			handleNoteOn(key);
+			break;
+		default:
+			break;
+	}
+	
 }
 //#endif
 // MIDI Baudrate = 31250, to sync MIDI and UART we set baudrate of UART to 31250
@@ -65,9 +116,9 @@ int calculate_baudrate_divider(int sysclk, int baudrate, int highspeed) {
 #if 1
                           /* PIC32 signal, CHIPKIT Pin #  */
 //#define DAC_LDAC_PIN		3 /* RD3,          9              */
-#define DAC_CS_PIN		3 /* RD3,          9              */
-#define DAC_SDI_PIN		6 /* RD6,          36             */
-#define DAC_SCK_PIN		7 /* RD7,          37             */
+#define DAC_CS_PIN		1 /* RD1,          5                  */
+#define DAC_SDI_PIN		2 /* RD2,          6                  */
+#define DAC_SCK_PIN		3 /* RD3,          9                  */
 
 
 /* MCP4921 DAC */
@@ -75,8 +126,8 @@ void MCP4921_init(void)
 {
 	/* Set all pins used by DAC to outputs */
 	TRISDCLR |= (1 << DAC_CS_PIN) | 
-					(1 << DAC_SDI_PIN) | 
-					(1 << DAC_SCK_PIN);
+				(1 << DAC_SDI_PIN) | 
+				(1 << DAC_SCK_PIN);
 	
 	//TRISD = 0;
 					
@@ -98,8 +149,8 @@ void MCP4921_write(uint16_t data)
 	dac_data |= (data & 0xfff);
 	/* Output Power-down Control bit */
 	dac_data |= (1 << 12);
-	/* Gain 1x */
-	dac_data |= (1 << 13);
+	/* Gain 2x */
+	dac_data |= (0 << 13);
 	/* Buffer V_ref */
 	dac_data |= (1 << 14);
 
@@ -141,13 +192,38 @@ void uart1_init(void)
 
 	// Interrupts:
 
-	IEC(0) |= 0x08000000; // Interrupt enable bit 27 in IEC0 
-	IPC(6) |= 0x1F; // Interupt priority max = 7 IPC6<4:2>, sup-priority max = 3 IPC6<1:0>
+	// IEC(0) |= 0x08000000; // Interrupt enable bit 27 in IEC0 
+	// IPC(6) |= 0x1F; // Interupt priority max = 7 IPC6<4:2>, sup-priority max = 3 IPC6<1:0>
+	// //IPC(6) |= 0x0D; // Interupt priority max = 7 IPC6<4:2>, sup-priority max = 3 IPC6<1:0>
+
+	// // OBS: Below conflicting with row 44,46
+	// U1STA &= ~0xC0;
+	// U1STA |= 0x00; // U1STA<7:6> Receive interrupt mode = 10 > Flag when buffer becomes 3/4 (24bits = One MIDI message)
+	// // Interrupt flag @ IFS0<27>
+	// // xxxx xxxx xxxx xxxx xxxx xxxx 00xx xxxx
+	// enable_interrupt();
+}
+
+void uart2_init(void)
+{
+	/* Configure UART1 for 115200 baud, no interrupts */
+	U2BRG = calculate_baudrate_divider(80000000, 31250, 0); // Initializes U1BRG register for 31250 baud
+	U2STA = 0; // 
+	/* 8-bit data, no parity, 1 stop bit */
+	U2MODE = 0x8000; 
+	/* Enable transmit and recieve */
+	U2STASET = 0x1400;	//
+
+
+	// Interrupts:
+    
+	IEC(1) |= 1 << 9; // Interrupt enable bit 27 in IEC0 
+	IPC(8) |= 0x1F; // Interupt priority max = 7 IPC8<4:2>, sup-priority max = 3 IPC8<1:0>
 	//IPC(6) |= 0x0D; // Interupt priority max = 7 IPC6<4:2>, sup-priority max = 3 IPC6<1:0>
 
 	// OBS: Below conflicting with row 44,46
-	U1STA &= ~0xC0;
-	U1STA |= 0x00; // U1STA<7:6> Receive interrupt mode = 10 > Flag when buffer becomes 3/4 (24bits = One MIDI message)
+	U2STA &= ~0xC0;
+	U2STA |= 0x00; // U1STA<7:6> Receive interrupt mode = 10 > Flag when buffer becomes 3/4 (24bits = One MIDI message)
 	// Interrupt flag @ IFS0<27>
 	// xxxx xxxx xxxx xxxx xxxx xxxx 00xx xxxx
 	enable_interrupt();
@@ -192,12 +268,12 @@ void init() {
 	
 
 	/* Configure UART1 for 115200 baud, no interrupts */
-	U1BRG = calculate_baudrate_divider(80000000, 31250, 0); // Initializes U1BRG register for 31250 baud
-	U1STA = 0; // 
-	/* 8-bit data, no parity, 1 stop bit */
-	U1MODE = 0x8000; 
-	/* Enable transmit and recieve */
-	U1STASET = 0x1400;	//
+	// U1BRG = calculate_baudrate_divider(80000000, 31250, 0); // Initializes U1BRG register for 31250 baud
+	// U1STA = 0; // 
+	// /* 8-bit data, no parity, 1 stop bit */
+	// U1MODE = 0x8000; 
+	// /* Enable transmit and recieve */
+	// U1STASET = 0x1400;	//
 
 
 	// Interrupts:
@@ -216,6 +292,7 @@ void init() {
 	PORTE = 0;
 	timer2_init();
 	uart1_init();
+	uart2_init();
 	MCP4921_init();
 	//return;
 }
@@ -238,17 +315,19 @@ void uart_isr( void ){
 	int i = 0;
 	// delay(100000);
 	//PORTE ^= (1 << 4);
-	if(IFS(0) & 0x08000000){
+	if(IFS(1) & 1<<9){	// UART1: IFS(0) & 0x08000000
 		// tmp = U1RXREG & 0xFFFFFF;
-		// fifo_reg = U1RXREG;
-		// midi_buff[midi_msg_cnt++] = U1RXREG & 0xff;
+		fifo_reg = U2RXREG;
+		// fifo_reg = reverse(0xFF & fifo_reg);
+		midi_buff[midi_msg_cnt++] = fifo_reg & 0xff;
 		// //while(U1STA & (1 << 9));
 		// //U1TXREG = U1RXREG;
 		// PORTE ^= (1 << 4);
-		PORTE = U1RXREG & 0xff;
+		PORTE = fifo_reg & 0xff;
+		//U1TXREG = fifo_reg & 0xff;
 		// // U1RXREG = 0;
 		// while(U1STA & (1 << 9)); //make sure the write buffer is not full 
-		// // U1TXREG = tmp;
+		// U1TXREG = tmp;
 		// for(i = 0; i < 3; ++i)
 		// {
 		// 	while(U1STA & (1 << 9));
@@ -258,7 +337,8 @@ void uart_isr( void ){
 		// }
 		
 		//PORTE = tmp; // Nytillagd
-		IFS(0) &= 0xF7FFFFFF; // Acknowledge interrupt
+		IFS(1) &= ~(1<<9);
+		// IFS(0) &= 0xF7FFFFFF; // Acknowledge UART1 interrupt
 	}
 }
 
@@ -304,34 +384,10 @@ int main(void) {
 		// if (getsw() & 1) { // If switch 1, play with buttons instead
 		// 	buttonPlay(); // SPELA MED KNAPPAR
 		// }	
-		//tim_ticks = timer2_get_cnt();
-		//MCP4921_write((sine_table[i] + sine_table[j] + sine_table[k] + sine_table[m]) >> 3);
-
-		// f = 440Hz, T = 0,0022727272727273s
-
-		if (IFS(0) & 0x100) { // Check if Timer 2 Time-out flag is set to 1, which is bit 8 of IFS0
-			timeoutcount++;
-			if (timeoutcount == 100) { // Check if counter has reached 100 = 100 time-out events
-				timeoutcount = 0;
-			}
-			IFS(0) &= 0xFFFFFEFF; // Time-out event, reset the flag to 0, bit 8 in IFS0.
-		}
-
-		i = (int) ((1024*32*440)/(25000*(timeoutcount)+timer2_get_cnt()))%1024;
-		// PORTE = i;
-		// delay(10000);
-		// MCP4921_write(sine_table[i]);
-
-		//i = i & 0x3ff;
-		//i += 50000000;
-		// i_acc += indexAdder;
-		// i = i_acc >> 22;
-		// i++;
-		// if (i < 1023) {
-		// 	i = 0;
-		// }
-
 		
+		tim_ticks = timer2_get_cnt();
+
+		MCP4921_write(polyphony(triangle_table));	
 
 		/*
 			While operating in 32-bit mode, the SIDL bit (TxCON<13>) of consecutive odd number timers 
@@ -356,20 +412,14 @@ int main(void) {
 		// while(U1STA & (1 << 9)); //make sure the write buffer is not full 
 		// U1TXREG = tmp;
 		// PORTE = tmp;
-		// if (midi_msg_cnt >= 3)
-		// {
-		// 	for (i = 0; i < 3; ++i)
-		// 	{
-		// 		// while(U1STA & (1 << 9));
-		// 		// U1TXREG = midi_buff[i];
-		// 		midibuff[i] = ~midibuff[i];
-		// 	}
-		// 	midi_msg_cnt = 0;
-		// 	char status = midi_buff[0];
-		// 	char key = midibuff[1];
-		// 	char vel = midibuff[2];
-		// 	message_handler(status, key, vel);
-		// }
+		if (midi_msg_cnt >= 3)
+		{
+			midi_msg_cnt = 0;
+			char status = midi_buff[0];
+			char key = midi_buff[1];
+			char vel = midi_buff[2];
+			message_handler(status, key, vel);
+		}
 		// delay(1000000);
 		// PORTE ^= (1 << 4);
 		// delay(1000);
