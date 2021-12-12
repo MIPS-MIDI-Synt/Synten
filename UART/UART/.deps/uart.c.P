@@ -1,0 +1,2 @@
+uart.c.o: uart.c /opt/mcb32tools/include/pic32mx.h
+uart.c /opt/mcb32tools/include/pic32mx.h :
