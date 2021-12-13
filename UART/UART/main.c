@@ -11,22 +11,23 @@
 #include "dac.h"
 
 
-#define BUFFER_SIZE 1024
-#define SAMPLE_RATE 22050
-#define SAMPLE_DURATION (1.0f / SAMPLE_RATE)
-#define NUM_OSCILLATORS 9
+// #define BUFFER_SIZE 1024
+// #define SAMPLE_RATE 22050
+// #define SAMPLE_DURATION (1.0f / SAMPLE_RATE)
+#define NUM_OSCILLATORS 9 // Number of concurrent tones - 1 ocsillator per voice 
 
-#define ATTACK 60
-#define RELEASE 10
+#define ATTACK_DEFAULT 60
+#define RELEASE_DEFAULT 10
 #define ENVELOPE_MAX 0xefff
 
 #define ENV_ENABLE
 
-int envelope_attack = ATTACK;
-int envelope_release = RELEASE;
+int envelope_attack = ATTACK_DEFAULT;
+int envelope_release = RELEASE_DEFAULT;
 
-int16_t* wave_table = sine_table;
+int16_t* wave_table = sine_table; // Default waveform
 
+// Declare envelope states
 typedef enum
 {
 	attack_s = 0,
@@ -34,6 +35,7 @@ typedef enum
 	release_s
 }osc_state_e;
 
+// Oscillator objects for producing multiple tones
 struct Oscillator {
 	int key;
 	int indexAdder;
@@ -45,9 +47,9 @@ struct Oscillator {
 	bool note_off;
 	int envelope_max;
 };
-struct Oscillator osc[NUM_OSCILLATORS] = {0};
+struct Oscillator osc[NUM_OSCILLATORS] = {0}; // Initsialize array of oscillators
 
-void osc_init(void)
+void osc_init(void) // Constructor for osc
 {
 	int i;
 	for(i = 0; i < NUM_OSCILLATORS; i++)
@@ -63,13 +65,13 @@ void delay(int cyc) {
 	for(i = cyc; i > 0; i--);
 }
 
-
+// A key is pressed, called by the midi_message()
 void handleNoteOn(int key, int vel) {
 	int i;
 	int key_index = 0;
 	bool index_found = false;
 
-	for (i = 0; i < NUM_OSCILLATORS; i++) {
+	for (i = 0; i < NUM_OSCILLATORS; i++) { // Check if key is already pressed, then use that oscillator
 		if (osc[i].key == key)
 		{
 			key_index = i;
@@ -77,7 +79,7 @@ void handleNoteOn(int key, int vel) {
 			break;
 		}
 	}
-	for (i = 0; (i < NUM_OSCILLATORS) && index_found == false; i++) {
+for (i = 0; (i < NUM_OSCILLATORS) && index_found == false; i++) { // If key is not currently playing, find free oscillator
 		if (osc[i].running == false)
 		{
 			key_index = i;
@@ -85,25 +87,26 @@ void handleNoteOn(int key, int vel) {
 			break;
 		}
 	}
+	// Set or reset the selected oscillator
 	if (index_found)
 	{
 		osc[key_index].running = true;
 		osc[key_index].key = key;
-		osc[key_index].indexAdder = 350000 * freq_table[key]; // 175000
+		osc[key_index].indexAdder = 350000 * freq_table[key]; 
 		osc[key_index].state = attack_s;
 		osc[key_index].attack_cnt = 0x0;
 		osc[key_index].note_off = false;
 		vel = vel << 9;
-		if (vel > 0xefff)
+		if (vel > ENVELOPE_MAX) // If notes individual velocity is larger than ENVELOPE_MAX
 		{
-			vel = 0xefff;
+			vel = ENVELOPE_MAX; 
 		}
-		osc[key_index].envelope_max = vel;
+		osc[key_index].envelope_max = vel; // Sets the max amplitude the current note can reach in attack state
 	}
 
-	PORTE = key;
+	PORTE = key; // Display key on LEDs
 }
-
+// A key is released, called by the midi_message()
 void handleNoteOff(int key) {
 	int i;
 	for (i = 0; i < NUM_OSCILLATORS; i++) {
@@ -114,20 +117,22 @@ void handleNoteOff(int key) {
 		}
 	}
 }
-
+/* Takes in a lookup table for a specific waveform, calculates the current amplitude of all running oscillators
+   based of which osc_state the notes is in and adds the amplitudes together, 
+*/
 unsigned int polyphony(int16_t* table) {
 	int i;
-	int amplitude = 0;
-	int envelope_amplitude = 0;
-	int envelop_max = 0;
+	int amplitude = 0; // Combined amplitude 
+	int envelope_amplitude = 0; // Individual amplitude for each oscillator
+	int envelop_max = 0; // Individual max amplitude for each oscillator
 	
 	for (i = 0; i < NUM_OSCILLATORS; i++) {
 		if (osc[i].running) {
 			envelop_max = osc[i].envelope_max;
-			osc[i].index += osc[i].indexAdder;
-			switch(osc[i].state)
+			osc[i].index += osc[i].indexAdder; // indexAdder is adapted to each tone to set the correct frequency
+			switch(osc[i].state) 
 			{
-				case attack_s:
+				case attack_s: // Increases initial rise of tone amplitude by increments defined in envelope_attack
 					envelope_amplitude = osc[i].attack_cnt;
 					osc[i].attack_cnt += envelope_attack;
 					if (osc[i].attack_cnt >= envelop_max)
@@ -137,17 +142,17 @@ unsigned int polyphony(int16_t* table) {
 					}
 				break;
 
-				case sustain_s:
+				case sustain_s: // Sustain max amplitude untill note off and release state
 					envelope_amplitude = envelop_max;
 					if (osc[i].note_off)
 					{
 						osc[i].note_off = false;
-						osc[i].release_cnt = envelop_max;
-						osc[i].state = release_s;
+						osc[i].release_cnt = envelop_max; // Amplitude from where release decrements
+						osc[i].state = release_s; 
 					}
 				break;
 
-				case release_s:
+				case release_s: // Decreases amplitude of tone by decrements defined in envelope_release
 					envelope_amplitude = osc[i].release_cnt;
 					osc[i].release_cnt -= envelope_release;
 					if (osc[i].release_cnt <= 0)
@@ -165,11 +170,12 @@ unsigned int polyphony(int16_t* table) {
 	}
 
 	amplitude >>= 2;
-	amplitude += 512;
+	amplitude += 512; // Curve minimum set to 0, no negative values 
 
 	return amplitude;
 }
 
+// Used for testing: Sends data to uart1 which can then be read with a terminal for serial communication
 void uart1_send(char* data, int size)
 {
 	int i;
